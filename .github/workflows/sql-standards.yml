@@ -1,0 +1,62 @@
+name: SQL Linting
+
+on: [pull_request]
+
+jobs:
+  lint-models:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: "actions/checkout@v4"
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v41
+        with:
+            files: models/**/*.sql
+
+      - name: Create dbt profiles.yml
+        env: # Use the secrets defined in GitHub Settings
+          DBT_HOST: ${{ secrets.DBT_HOST }}
+          DBT_PATH: ${{ secrets.DBT_PATH }}
+          DBT_TOKEN: ${{ secrets.DBT_TOKEN }}
+          DBT_CATALOG: ${{ secrets.DBT_CATALOG }}
+          DBT_PROFILE: ${{ secrets.DBT_PROFILE }}
+        run: |
+          mkdir -p ~/.dbt
+          cat << EOF > ~/.dbt/profiles.yml
+          $DBT_PROFILE: 
+            target: dev
+            outputs:
+              dev:
+                type: databricks
+                schema: default
+                threads: 1
+                catalog: $DBT_CATALOG
+                host: $DBT_HOST
+                http_path: $DBT_PATH
+                token: $DBT_TOKEN
+          EOF
+
+          # 3. VERIFICATION: Print the file content to the logs (temporarily)
+          echo "--- profiles.yml content ---"
+          cat ~/.dbt/profiles.yml
+          echo "------------------------------------------------------------"
+
+      - name: Install SQLFluff & lint files
+        # Only run this step if the 'changed-files' action found files
+        if: steps.changed-files.outputs.any_changed == 'true'
+        run: |
+          # 1. Install SQLFluff
+          pip install click==8.3.0 
+
+          pip install --upgrade sqlfluff==3.5.0 sqlfluff-templater-dbt dbt-databricks
+          #pip install sqlfluff==3.5.0
+          #pip install sqlfluff-templater-dbt
+          #pip install dbt-databricks
+          dbt debug
+          # 2. Lint only the changed files.
+          #export DBT_PROFILES_DIR=.
+          sqlfluff lint ${{ steps.changed-files.outputs.all_changed_files }} --format github-annotation-native
+
+
+#py -m sqlfluff lint models
